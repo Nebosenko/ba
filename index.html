@@ -3,91 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC 期权全景监控 - 终极直连版</title>
+    <title>BTC 期权全景监控</title>
     <style>
         :root { --binance-yellow: #f0b90b; --bg: #0b0e11; --card: #1e2329; --call: #0ecb81; --put: #f6465d; --text: #eaecef; --border: #363c4e; }
-        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
         .header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
         .header h1 { font-size: 20px; color: var(--binance-yellow); margin: 0; }
         #status { font-size: 12px; color: #848e9c; }
-        .loading { text-align: center; margin-top: 50px; color: #848e9c; }
+        .loading { text-align: center; margin-top: 50px; color: #848e9c; line-height: 2; }
         .expiry-section { background: var(--card); border-radius: 8px; margin-bottom: 30px; border: 1px solid var(--border); overflow: hidden; }
-        .expiry-header { background: #2b3139; padding: 12px 20px; font-weight: bold; display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); }
+        .expiry-header { background: #2b3139; padding: 12px 20px; font-weight: bold; border-bottom: 1px solid var(--border); color: #fff; }
         .table-container { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; min-width: 800px; }
-        th { background: #161a1e; color: #848e9c; font-size: 11px; padding: 10px 5px; text-transform: uppercase; }
+        th { background: #161a1e; color: #848e9c; font-size: 11px; padding: 12px 5px; text-transform: uppercase; }
         td { padding: 10px 5px; text-align: center; border-bottom: 1px solid #2b3139; font-size: 13px; font-family: "Consolas", monospace; }
         .strike-col { background: #161a1e; font-weight: bold; color: #fff; width: 100px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
         .call-side { color: var(--call); text-align: right; padding-right: 15px; }
         .put-side { color: var(--put); text-align: left; padding-left: 15px; }
         .greek { color: #848e9c; font-size: 11px; }
-        .btn { background: var(--binance-yellow); color: #000; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        .error-msg { color: #f6465d; background: rgba(246, 70, 93, 0.1); padding: 15px; border-radius: 4px; display: inline-block; }
     </style>
 </head>
 <body>
 
 <div class="header">
     <h1>BTC 期权全景看板</h1>
-    <div id="status">连接中...</div>
+    <div id="status">正在探测可用隧道...</div>
 </div>
 
 <div id="main-content">
     <div class="loading">
-        📡 正在尝试通过多个隧道连接币安数据源...<br>
-        如果 10 秒内未响应，请检查您的网络环境。
+        📡 正在通过镜像节点同步币安数据...<br>
+        <small>如果长时间无响应，请检查是否开启了网络全局加速模式。</small>
     </div>
 </div>
 
 <script>
-    // 方案：使用公开的跨域网关，跳过受限的云服务器 IP
-    const PROXY_LIST = [
-        "https://api.allorigins.win/get?url=",
-        "https://corsproxy.io/?",
-        "https://api.codetabs.com/v1/proxy?quest="
-    ];
-
+    // 方案：改用更加隐蔽的镜像接口，减少被币安 WAF 识别的概率
     async function fetchData() {
-        const target = "https://eapi.binance.com/eapi/v1/mark";
         const statusEl = document.getElementById('status');
-        
-        // 我们尝试第一个最稳的代理
-        const proxyUrl = PROXY_LIST[0] + encodeURIComponent(target);
+        // 这是一个相对较冷门且高效的跨域镜像源
+        const proxyUrl = "https://thingproxy.freeboard.io/fetch/";
+        const targetUrl = "https://eapi.binance.com/eapi/v1/mark";
 
         try {
-            const res = await fetch(proxyUrl);
-            const rawData = await res.json();
+            const response = await fetch(proxyUrl + targetUrl);
             
-            // AllOrigins 包装了数据在 .contents 字段里
-            let data = typeof rawData.contents === 'string' ? JSON.parse(rawData.contents) : rawData.contents;
-
-            if (!Array.isArray(data)) throw new Error("数据格式无效");
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            const data = await response.json();
+            
+            if (!Array.isArray(data)) throw new Error("数据返回格式非数组");
 
             const btcOptions = data.filter(opt => opt.symbol.startsWith('BTC-'));
-            
-            // 归类逻辑
+
             const groups = {};
             btcOptions.forEach(opt => {
                 const parts = opt.symbol.split('-'); 
-                const [_, expiry, strike, type] = parts;
+                const expiry = parts[1];
+                const strike = parts[2];
+                const type = parts[3];
+
                 if (!groups[expiry]) groups[expiry] = {};
                 if (!groups[expiry][strike]) groups[expiry][strike] = { C: null, P: null };
 
                 groups[expiry][strike][type] = {
-                    price: parseFloat(opt.markPrice).toFixed(1),
+                    price: parseFloat(opt.markPrice).toLocaleString(),
                     iv: (parseFloat(opt.markIV || opt.expiryIV || 0) * 100).toFixed(1) + '%',
                     delta: parseFloat(opt.delta || 0).toFixed(3)
                 };
             });
 
             render(groups);
-            statusEl.innerText = '更新于: ' + new Date().toLocaleTimeString();
+            statusEl.innerText = '实时更新: ' + new Date().toLocaleTimeString();
         } catch (e) {
             console.error(e);
             document.getElementById('main-content').innerHTML = `
-                <div class="loading" style="color:#f6465d;">
-                    ❌ 隧道连接受阻: ${e.message}<br>
-                    <small>原因：您的本地网络可能限制了跨域代理请求。</small><br>
-                    <button class="btn" onclick="location.reload()">手动重试</button>
+                <div class="loading">
+                    <div class="error-msg">
+                        ❌ 访问受阻: ${e.message === 'Failed to fetch' ? '网络无法连接' : e.message}<br>
+                        建议操作：开启“全局模式”网络加速，然后点击刷新。
+                    </div><br>
+                    <button onclick="location.reload()" style="margin-top:20px; padding:10px 25px; border-radius:5px; cursor:pointer;">手动重刷</button>
                 </div>`;
         }
     }
@@ -100,22 +97,22 @@
         sortedExpiries.forEach(expiry => {
             const section = document.createElement('div');
             section.className = 'expiry-section';
-            const date = `20${expiry.substring(0,2)}-${expiry.substring(2,4)}-${expiry.substring(4,6)}`;
+            const formattedDate = `20${expiry.substring(0,2)}-${expiry.substring(2,4)}-${expiry.substring(4,6)}`;
             
-            let html = `<div class="expiry-header">📅 到期日: ${date} <span>USDT 结算</span></div>
+            let html = `<div class="expiry-header">📅 到期日: ${formattedDate}</div>
                 <div class="table-container"><table>
-                <thead><tr><th>Delta</th><th>IV</th><th style="text-align:right">CALL 价格</th><th class="strike-col">执行价</th><th style="text-align:left">PUT 价格</th><th>IV</th><th>Delta</th></tr></thead>
+                <thead><tr><th>Delta</th><th>IV</th><th style="text-align:right">CALL 标记价</th><th class="strike-col">执行价</th><th style="text-align:left">PUT 标记价</th><th>IV</th><th>Delta</th></tr></thead>
                 <tbody>`;
 
-            const sortedStrikes = Object.keys(groups[expiry]).sort((a, b) => a - b);
+            const sortedStrikes = Object.keys(groups[expiry]).sort((a, b) => Number(a) - Number(b));
             sortedStrikes.forEach(strike => {
                 const call = groups[expiry][strike].C;
                 const put = groups[expiry][strike].P;
                 html += `<tr>
                     <td class="greek">${call?.delta || '-'}</td><td class="greek">${call?.iv || '-'}</td>
-                    <td class="call-side">${call ? '$'+call.price : '-'}</td>
-                    <td class="strike-col">${parseInt(strike)}</td>
-                    <td class="put-side">${put ? '$'+put.price : '-'}</td>
+                    <td class="call-side">${call ? '$' + call.price : '-'}</td>
+                    <td class="strike-col">${parseInt(strike).toLocaleString()}</td>
+                    <td class="put-side">${put ? '$' + put.price : '-'}</td>
                     <td class="greek">${put?.iv || '-'}</td><td class="greek">${put?.delta || '-'}</td>
                 </tr>`;
             });
@@ -126,7 +123,8 @@
     }
 
     fetchData();
-    setInterval(fetchData, 60000);
+    setInterval(fetchData, 45000);
 </script>
+
 </body>
 </html>
