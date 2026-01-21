@@ -1,33 +1,25 @@
 export default async function handler(req, res) {
-    // 尝试使用备用 API 域名 (api1, api2, 或 api3 往往能绕过某些限制)
-    const apiEndpoints = [
-        'https://eapi.binance.com/eapi/v1/mark',
-        'https://api.binance.com/eapi/v1/mark',
-        'https://api1.binance.com/eapi/v1/mark'
-    ];
+    // 使用 allorigins 代理，这可以绕过币安对 Vercel IP 的地理位置限制 (451)
+    const targetUrl = 'https://eapi.binance.com/eapi/v1/mark';
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
     
-    let lastError = '';
-
-    for (let url of apiEndpoints) {
-        try {
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                res.setHeader('Access-Control-Allow-Origin', '*');
-                res.setHeader('Content-Type', 'application/json');
-                return res.status(200).json(data);
-            }
-            
-            lastError = `Endpoint ${url} returned ${response.status}`;
-        } catch (error) {
-            lastError = error.message;
+    try {
+        const response = await fetch(proxyUrl);
+        
+        if (!response.ok) {
+            throw new Error(`代理服务器返回错误: ${response.status}`);
         }
-    }
+        
+        const data = await response.json();
 
-    res.status(500).json({ error: "所有 API 节点均被限制 (451/403)。错误详情: " + lastError });
+        // 允许你的前端访问
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Type', 'application/json');
+        res.status(200).json(data);
+    } catch (error) {
+        res.status(500).json({ 
+            error: "代理抓取失败，请刷新页面重试。",
+            details: error.message 
+        });
+    }
 }
