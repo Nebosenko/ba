@@ -3,61 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC 期权全景监控 - 终极方案</title>
+    <title>BTC 期权全景看板 - 稳定版</title>
     <style>
         :root { --binance-yellow: #f0b90b; --bg: #0b0e11; --card: #1e2329; --call: #0ecb81; --put: #f6465d; --text: #eaecef; --border: #363c4e; }
-        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        
         .header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
         .header h1 { font-size: 22px; color: var(--binance-yellow); margin: 0; }
         #status { font-size: 12px; color: #848e9c; }
+
         .loading { text-align: center; margin-top: 50px; color: #848e9c; font-size: 16px; line-height: 1.8; }
+        .btn-retry { margin-top: 15px; padding: 8px 20px; background: var(--binance-yellow); border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: #000; }
+
+        /* 分类区块 */
         .expiry-section { background: var(--card); border-radius: 8px; margin-bottom: 30px; border: 1px solid var(--border); overflow: hidden; }
         .expiry-header { background: #2b3139; padding: 12px 20px; font-weight: bold; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+        
+        /* 表格排版 */
         .table-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; min-width: 800px; }
-        th { background: #161a1e; color: #848e9c; font-size: 11px; padding: 10px 5px; }
-        td { padding: 8px 5px; text-align: center; border-bottom: 1px solid #2b3139; font-size: 13px; font-family: "Consolas", monospace; }
-        .strike-col { background: #161a1e; font-weight: bold; color: #fff; width: 110px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
-        .call-side { color: var(--call); text-align: right; padding-right: 15px; }
-        .put-side { color: var(--put); text-align: left; padding-left: 15px; }
+        table { width: 100%; border-collapse: collapse; min-width: 850px; }
+        th { background: #161a1e; color: #848e9c; font-size: 11px; padding: 12px 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 10px 5px; text-align: center; border-bottom: 1px solid #2b3139; font-size: 13px; font-family: "Consolas", "Monaco", monospace; }
+
+        /* T型排列核心颜色 */
+        .strike-col { background: #161a1e; font-weight: bold; color: #fff; width: 120px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+        .call-side { color: var(--call); text-align: right; padding-right: 20px; }
+        .put-side { color: var(--put); text-align: left; padding-left: 20px; }
         .greek { color: #848e9c; font-size: 11px; }
-        .btn-retry { margin-top: 15px; padding: 8px 20px; background: var(--binance-yellow); border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        
+        @media (max-width: 600px) { .header h1 { font-size: 18px; } th { font-size: 10px; } td { font-size: 12px; } .strike-col { width: 80px; } }
     </style>
 </head>
 <body>
 
 <div class="header">
     <h1>BTC 期权全景看板</h1>
-    <div id="status">准备连接...</div>
+    <div id="status">正在初始化...</div>
 </div>
 
 <div id="main-content">
     <div class="loading">
-        📡 正在绕过区域限制尝试连接币安 API...<br>
-        首次加载可能需要 5-10 秒，请保持网页开启。
+        📡 正在通过专属服务器同步币安 BTC 期权链...<br>
+        首次加载需等待数据解析，请稍候。
     </div>
 </div>
 
 <script>
-    // 替换为您刚创建的 Cloudflare Worker 网址
-    const WORKER_URL = "https://ba.yuanhua-mail.workers.dev";
+    /** * [重要步骤] 
+     * 请将下方的 URL 替换为您在 Cloudflare Workers 部署后生成的地址 
+     */
+    const WORKER_URL = "https://ba.yuanhua-mail.workers.dev/";
 
     async function fetchData() {
         const statusEl = document.getElementById('status');
         try {
+            statusEl.innerText = '同步中...';
             const response = await fetch(WORKER_URL);
-            if (!response.ok) throw new Error("Worker 响应错误: " + response.status);
+            
+            if (!response.ok) throw new Error(`服务器响应异常 (${response.status})`);
             
             const data = await response.json();
-            
-            // 下面的逻辑保持不变
-            const btcOptions = data.filter(opt => opt.symbol && opt.symbol.startsWith('BTC-'));
-            if (btcOptions.length === 0) throw new Error("未找到 BTC 期权数据");
 
+            // 1. 筛选 BTC 数据
+            const btcOptions = data.filter(opt => opt.symbol && opt.symbol.startsWith('BTC-'));
+
+            if (btcOptions.length === 0) throw new Error("未找到 BTC 相关的有效期权合约");
+
+            // 2. 数据解析与分组 (T-Shape 结构)
             const groups = {};
             btcOptions.forEach(opt => {
                 const parts = opt.symbol.split('-'); 
                 if (parts.length < 4) return;
+
                 const expiry = parts[1];
                 const strike = parts[2];
                 const type = parts[3];
@@ -65,26 +82,90 @@
                 if (!groups[expiry]) groups[expiry] = {};
                 if (!groups[expiry][strike]) groups[expiry][strike] = { C: null, P: null };
 
+                // 兼容字段名
+                const ivValue = opt.markIV || opt.expiryIV || 0;
+
                 groups[expiry][strike][type] = {
                     price: parseFloat(opt.markPrice).toLocaleString(undefined, {minimumFractionDigits: 1}),
-                    iv: (parseFloat(opt.markIV || opt.expiryIV || 0) * 100).toFixed(1) + '%',
+                    iv: (parseFloat(ivValue) * 100).toFixed(1) + '%',
                     delta: parseFloat(opt.delta || 0).toFixed(3)
                 };
             });
 
             renderTable(groups);
-            statusEl.innerText = '最后同步: ' + new Date().toLocaleTimeString();
+            statusEl.innerText = '最后更新: ' + new Date().toLocaleTimeString();
+
         } catch (error) {
+            console.error('Fetch error:', error);
             document.getElementById('main-content').innerHTML = `
-                <div class="loading">
-                    <span style="color:#f6465d;">❌ 连接失败: ${error.message}</span><br>
-                    <button class="btn-retry" onclick="fetchData()">重试</button>
+                <div class="loading" style="color:#f6465d;">
+                    ❌ 访问失败: ${error.message}<br>
+                    <small>请确认 Cloudflare Worker 是否已正常部署，并检查网络连接。</small><br>
+                    <button class="btn-retry" onclick="fetchData()">点此重试</button>
                 </div>`;
         }
     }
-    // ... 其他函数保持不变 ...
+
+    function renderTable(groups) {
+        const container = document.getElementById('main-content');
+        container.innerHTML = '';
+
+        // 按日期升序排列
+        const sortedExpiries = Object.keys(groups).sort();
+
+        sortedExpiries.forEach(expiry => {
+            const section = document.createElement('div');
+            section.className = 'expiry-section';
+
+            // 格式化日期 260123 -> 2026-01-23
+            const formattedDate = `20${expiry.substring(0,2)}-${expiry.substring(2,4)}-${expiry.substring(4,6)}`;
+            
+            let html = `
+                <div class="expiry-header">
+                    <span>📅 到期日: ${formattedDate}</span>
+                    <span style="color:#848e9c; font-size:12px; font-weight:normal;">标的资产: BTC / 结算: USDT</span>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Delta</th><th>IV</th><th style="text-align:right">CALL 标记价</th>
+                                <th class="strike-col">执行价 (Strike)</th>
+                                <th style="text-align:left">PUT 标记价</th><th>IV</th><th>Delta</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+            // 按执行价升序排列
+            const sortedStrikes = Object.keys(groups[expiry]).sort((a, b) => Number(a) - Number(b));
+
+            sortedStrikes.forEach(strike => {
+                const call = groups[expiry][strike]['C'];
+                const put = groups[expiry][strike]['P'];
+
+                html += `
+                    <tr>
+                        <td class="greek">${call ? call.delta : '-'}</td>
+                        <td class="greek">${call ? call.iv : '-'}</td>
+                        <td class="call-side">${call ? '$' + call.price : '-'}</td>
+                        
+                        <td class="strike-col">${parseInt(strike).toLocaleString()}</td>
+                        
+                        <td class="put-side">${put ? '$' + put.price : '-'}</td>
+                        <td class="greek">${put ? put.iv : '-'}</td>
+                        <td class="greek">${put ? put.delta : '-'}</td>
+                    </tr>`;
+            });
+
+            html += `</tbody></table></div>`;
+            section.innerHTML = html;
+            container.appendChild(section);
+        });
+    }
+
+    // 立即执行并开启定时器
     fetchData();
-    setInterval(fetchData, 30000); 
+    setInterval(fetchData, 30000); // 30秒刷新一次
 </script>
 
 </body>
