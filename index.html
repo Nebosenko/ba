@@ -47,22 +47,32 @@
     <div class="loading">📡 正在连接云函数，获取 BTC 期权实时数据...</div>
 </div>
 
-<script>
-    async function fetchData() {
+async function fetchData() {
         try {
-            // 请求 Vercel 云函数中转接口
             const response = await fetch('/api/data');
-            const data = await response.json();
+            let data = await response.json();
+
+            // 关键修复：处理代理可能返回的包裹格式
+            if (data.contents) {
+                // 如果代理返回的是字符串，则解析它
+                data = typeof data.contents === 'string' ? JSON.parse(data.contents) : data.contents;
+            }
 
             if (data.error) throw new Error(data.error);
+            
+            // 确保 data 是数组才能使用 filter
+            if (!Array.isArray(data)) {
+                console.error("收到的数据不是数组:", data);
+                throw new Error("API 返回格式不正确，请刷新重试。");
+            }
 
             // 1. 筛选 BTC 数据
-            const btcOptions = data.filter(item => item.symbol.startsWith('BTC-'));
+            const btcOptions = data.filter(item => item.symbol && item.symbol.startsWith('BTC-'));
 
-            // 2. 数据解析与分组
+            // 2. 数据解析与分组 (后续逻辑保持不变)
             const groups = {};
             btcOptions.forEach(opt => {
-                const parts = opt.symbol.split('-'); // 格式: BTC-260123-95000-C
+                const parts = opt.symbol.split('-'); 
                 const expiry = parts[1];
                 const strike = parts[2];
                 const type = parts[3];
@@ -72,7 +82,7 @@
 
                 groups[expiry][strike][type] = {
                     price: parseFloat(opt.markPrice).toLocaleString(undefined, {minimumFractionDigits: 1}),
-                    iv: (parseFloat(opt.markIV) * 100).toFixed(1) + '%',
+                    iv: (parseFloat(opt.markIV || opt.expiryIV) * 100).toFixed(1) + '%',
                     delta: parseFloat(opt.delta).toFixed(3)
                 };
             });
@@ -85,73 +95,10 @@
             document.getElementById('main-content').innerHTML = `
                 <div class="loading" style="color:#f6465d;">
                     ❌ 访问失败: ${error.message}<br>
-                    请检查 api/data.js 是否配置正确。
+                    <small>提示：如果多次尝试失败，可能是代理服务波动，请稍后刷新。</small>
                 </div>`;
         }
     }
-
-    function renderTable(groups) {
-        const container = document.getElementById('main-content');
-        container.innerHTML = '';
-
-        // 按到期日升序排列
-        const sortedExpiries = Object.keys(groups).sort();
-
-        sortedExpiries.forEach(expiry => {
-            const section = document.createElement('div');
-            section.className = 'expiry-section';
-
-            // 格式化日期显示 260123 -> 2026-01-23
-            const formattedDate = `20${expiry.substring(0,2)}-${expiry.substring(2,4)}-${expiry.substring(4,6)}`;
-            
-            let html = `
-                <div class="expiry-header">
-                    <span>📅 到期日: ${formattedDate}</span>
-                    <span style="color:#848e9c; font-size:12px;">结算资产: USDT</span>
-                </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Delta</th><th>IV</th><th style="text-align:right">CALL 标记价</th>
-                                <th class="strike-col">执行价 (Strike)</th>
-                                <th style="text-align:left">PUT 标记价</th><th>IV</th><th>Delta</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
-
-            // 按执行价升序排列
-            const sortedStrikes = Object.keys(groups[expiry]).sort((a, b) => Number(a) - Number(b));
-
-            sortedStrikes.forEach(strike => {
-                const call = groups[expiry][strike]['C'];
-                const put = groups[expiry][strike]['P'];
-
-                html += `
-                    <tr>
-                        <td class="greek">${call ? call.delta : '-'}</td>
-                        <td class="greek">${call ? call.iv : '-'}</td>
-                        <td class="call-side">${call ? '$' + call.price : '-'}</td>
-                        
-                        <td class="strike-col">${parseInt(strike).toLocaleString()}</td>
-                        
-                        <td class="put-side">${put ? '$' + put.price : '-'}</td>
-                        <td class="greek">${put ? put.iv : '-'}</td>
-                        <td class="greek">${put ? put.delta : '-'}</td>
-                    </tr>`;
-            });
-
-            html += `</tbody></table></div>`;
-            section.innerHTML = html;
-            container.appendChild(section);
-        });
-    }
-
-    // 初始执行
-    fetchData();
-    // 每 30 秒自动刷新一次
-    setInterval(fetchData, 30000);
-</script>
 
 </body>
 </html>
