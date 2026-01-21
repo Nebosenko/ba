@@ -45,33 +45,43 @@
     async function fetchData() {
         const statusEl = document.getElementById('status');
         try {
-            // 请求您的 Vercel API 路由
             const response = await fetch('/api/data');
-            let data = await response.json();
+            let rawData = await response.json();
 
-            // 修复逻辑：处理代理服务可能返回的包装格式 (contents 字段)
-            if (data && data.contents) {
-                data = typeof data.contents === 'string' ? JSON.parse(data.contents) : data.contents;
+            // --- 核心加固逻辑开始 ---
+            let cleanData = rawData;
+
+            // 1. 如果数据被裹在 contents 里 (AllOrigins 常见情况)
+            if (cleanData && cleanData.contents) {
+                cleanData = cleanData.contents;
             }
 
-            // 错误检查：如果后端返回了 error 字段
-            if (data.error) throw new Error(data.error);
-
-            // 关键修复：确保 data 最终是一个数组
-            const optionsArray = Array.isArray(data) ? data : (data.data || []);
-            
-            if (!Array.isArray(optionsArray) || optionsArray.length === 0) {
-                throw new Error("接收到的数据格式异常或为空");
+            // 2. 如果数据还是字符串，尝试 JSON 解析
+            if (typeof cleanData === 'string') {
+                try {
+                    cleanData = JSON.parse(cleanData);
+                } catch(e) {
+                    console.error("JSON 解析二次失败");
+                }
             }
 
-            // 1. 过滤 BTC 相关的期权合约
-            const btcOptions = optionsArray.filter(opt => opt.symbol && opt.symbol.startsWith('BTC-'));
+            // 3. 寻找隐藏在对象深处的数组 (针对某些代理返回 { data: [...] } 的情况)
+            const finalArray = Array.isArray(cleanData) ? cleanData : 
+                               (cleanData.data && Array.isArray(cleanData.data) ? cleanData.data : null);
 
-            // 2. 数据分类与分组
+            if (!finalArray) {
+                throw new Error("未能识别出数组格式，请检查控制台 Network 响应");
+            }
+            // --- 核心加固逻辑结束 ---
+
+            const btcOptions = finalArray.filter(opt => opt.symbol && opt.symbol.startsWith('BTC-'));
+
+            if (btcOptions.length === 0) throw new Error("API 已联通，但未找到 BTC 相关的期权合约");
+
             const groups = {};
             btcOptions.forEach(opt => {
                 const parts = opt.symbol.split('-'); 
-                if (parts.length < 4) return; // 跳过不符合格式的合约
+                if (parts.length < 4) return;
 
                 const expiry = parts[1];
                 const strike = parts[2];
@@ -80,8 +90,8 @@
                 if (!groups[expiry]) groups[expiry] = {};
                 if (!groups[expiry][strike]) groups[expiry][strike] = { C: null, P: null };
 
-                // 兼容不同 API 节点的字段命名 (markIV 或 expiryIV)
-                const ivValue = opt.markIV || opt.expiryIV || 0;
+                // 统一字段名：币安有时返回 markIV，有时返回 expiryIV
+                const ivValue = opt.markIV || opt.expiryIV || opt.markIv || 0;
 
                 groups[expiry][strike][type] = {
                     price: parseFloat(opt.markPrice).toLocaleString(undefined, {minimumFractionDigits: 1}),
@@ -97,12 +107,12 @@
             console.error('Fetch error:', error);
             document.getElementById('main-content').innerHTML = `
                 <div class="loading" style="color:#f6465d;">
-                    ❌ 数据处理失败: ${error.message}<br>
-                    <small>建议：检查 api/data.js 是否使用了方案 A 的代理代码，并尝试刷新页面。</small>
+                    ❌ 接收到的数据格式异常<br>
+                    <small>错误详情: ${error.message}</small><br>
+                    <button onclick="location.reload()" style="margin-top:10px; padding:5px 15px; cursor:pointer;">手动重试</button>
                 </div>`;
         }
     }
-
     function renderTable(groups) {
         const container = document.getElementById('main-content');
         container.innerHTML = '';
