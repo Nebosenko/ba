@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BTC 期权全景监控 - Vercel 版</title>
+    <style>
+        :root { --binance-yellow: #f0b90b; --bg: #121212; --card: #1e1e1e; --call: #0ecb81; --put: #f6465d; --text: #eaeaea; }
+        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; }
+        .loading { font-size: 20px; text-align: center; margin-top: 100px; color: #888; }
+        
+        /* 到期日分类容器 */
+        .expiry-section { background: var(--card); border-radius: 8px; margin-bottom: 40px; overflow: hidden; border: 1px solid #333; }
+        .expiry-title { background: #2b2b2b; padding: 15px 20px; font-size: 18px; font-weight: bold; color: var(--binance-yellow); border-bottom: 1px solid #333; }
+        
+        /* T型期权链排版 */
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th { background: #252525; font-size: 13px; color: #888; padding: 10px; text-align: center; }
+        td { padding: 12px 5px; text-align: center; border-bottom: 1px solid #2a2a2a; font-family: "Courier New", monospace; font-size: 14px; }
+        
+        /* 颜色区分 */
+        .strike-cell { background: #161616; font-weight: bold; color: #fff; border-left: 2px solid #333; border-right: 2px solid #333; }
+        .call-side { color: var(--call); }
+        .put-side { color: var(--put); }
+        .dim { color: #555; font-size: 12px; }
+        
+        /* 移动端优化 */
+        @media (max-width: 768px) { .header h1 { font-size: 18px; } td, th { font-size: 11px; padding: 5px 2px; } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>BTC 期权全景看板</h1>
+    <div id="status">正在同步币安数据...</div>
+</div>
+
+<div id="main-content">
+    <div class="loading">正在获取 BTC 期权链数据，请稍候...</div>
+</div>
+
+<script>
+    async function init() {
+        const apiUrl = 'https://eapi.binance.com/eapi/v1/mark';
+        try {
+            const res = await fetch(apiUrl);
+            const data = await res.json();
+            
+            // 1. 过滤 BTC 并解析数据
+            const btcData = data.filter(d => d.symbol.startsWith('BTC-'))
+                .map(d => {
+                    const parts = d.symbol.split('-'); // BTC-260123-95000-C
+                    return {
+                        symbol: d.symbol,
+                        expiry: parts[1],
+                        strike: parseInt(parts[2]),
+                        type: parts[3],
+                        markPrice: parseFloat(d.markPrice),
+                        iv: (parseFloat(d.expiryIV) * 100).toFixed(1) + '%',
+                        delta: parseFloat(d.delta).toFixed(3)
+                    };
+                });
+
+            // 2. 按到期日分组
+            const groups = {};
+            btcData.forEach(item => {
+                if (!groups[item.expiry]) groups[item.expiry] = {};
+                if (!groups[item.expiry][item.strike]) groups[item.expiry][item.strike] = { C: null, P: null };
+                groups[item.expiry][item.strike][item.type] = item;
+            });
+
+            render(groups);
+            document.getElementById('status').innerText = '最后更新: ' + new Date().toLocaleTimeString();
+        } catch (e) {
+            document.getElementById('main-content').innerHTML = `<div class="loading">数据加载失败: ${e.message}</div>`;
+        }
+    }
+
+    function render(groups) {
+        const container = document.getElementById('main-content');
+        container.innerHTML = '';
+
+        // 获取并排序到期日
+        const sortedExpiries = Object.keys(groups).sort();
+
+        sortedExpiries.forEach(expiry => {
+            const section = document.createElement('div');
+            section.className = 'expiry-section';
+            
+            let html = `<div class="expiry-title">📅 到期日：20${expiry.substring(0,2)}年${expiry.substring(2,4)}月${expiry.substring(4,6)}日</div>`;
+            html += `<table>
+                <thead>
+                    <tr>
+                        <th>Call 标记价</th><th>IV</th><th>Delta</th>
+                        <th style="width:100px;">执行价 (Strike)</th>
+                        <th>Delta</th><th>IV</th><th>Put 标记价</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            // 获取该日期下所有执行价并排序
+            const strikes = Object.keys(groups[expiry]).sort((a, b) => a - b);
+            
+            strikes.forEach(strike => {
+                const call = groups[expiry][strike]['C'];
+                const put = groups[expiry][strike]['P'];
+
+                html += `
+                    <tr>
+                        <td class="call-side">${call ? '$' + call.markPrice.toLocaleString() : '-'}</td>
+                        <td class="dim">${call ? call.iv : '-'}</td>
+                        <td class="dim">${call ? call.delta : '-'}</td>
+                        
+                        <td class="strike-cell">${parseInt(strike).toLocaleString()}</td>
+                        
+                        <td class="dim">${put ? put.delta : '-'}</td>
+                        <td class="dim">${put ? put.iv : '-'}</td>
+                        <td class="put-side">${put ? '$' + put.markPrice.toLocaleString() : '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            section.innerHTML = html;
+            container.appendChild(section);
+        });
+    }
+
+    async function init() {
+    // 将此处改为你自己的 Vercel API 路径
+    const apiUrl = '/api/data'; 
+    try {
+        const res = await fetch(apiUrl);
+        // ... 后面的逻辑保持不变 ...
+</script>
+
+</body>
+</html>
