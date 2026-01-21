@@ -39,30 +39,25 @@
 </div>
 
 <script>
-    // 使用公开的跨域反向代理
-    const PROXY_URL = "https://api.allorigins.win/raw?url=";
-    const TARGET_URL = encodeURIComponent("https://eapi.binance.com/eapi/v1/mark");
+    // 替换为您刚创建的 Cloudflare Worker 网址
+    const WORKER_URL = "https://ba.yuanhua-mail.workers.dev";
 
     async function fetchData() {
         const statusEl = document.getElementById('status');
         try {
-            // 直接从前端请求代理，跳过 Vercel 后端
-            const response = await fetch(PROXY_URL + TARGET_URL);
-            if (!response.ok) throw new Error("代理服务器响应异常");
+            const response = await fetch(WORKER_URL);
+            if (!response.ok) throw new Error("Worker 响应错误: " + response.status);
             
             const data = await response.json();
             
-            // 确保数据是数组
-            const optionsArray = Array.isArray(data) ? data : (data.data || []);
-            if (!optionsArray || optionsArray.length === 0) throw new Error("接收到的期权数据为空");
-
-            const btcOptions = optionsArray.filter(opt => opt.symbol && opt.symbol.startsWith('BTC-'));
+            // 下面的逻辑保持不变
+            const btcOptions = data.filter(opt => opt.symbol && opt.symbol.startsWith('BTC-'));
+            if (btcOptions.length === 0) throw new Error("未找到 BTC 期权数据");
 
             const groups = {};
             btcOptions.forEach(opt => {
                 const parts = opt.symbol.split('-'); 
                 if (parts.length < 4) return;
-
                 const expiry = parts[1];
                 const strike = parts[2];
                 const type = parts[3];
@@ -79,68 +74,17 @@
 
             renderTable(groups);
             statusEl.innerText = '最后同步: ' + new Date().toLocaleTimeString();
-
         } catch (error) {
-            console.error(error);
             document.getElementById('main-content').innerHTML = `
                 <div class="loading">
                     <span style="color:#f6465d;">❌ 连接失败: ${error.message}</span><br>
-                    <small>提示：这通常是由于您的本地网络无法连接代理服务器。请尝试开启加速器或更换网络环境。</small><br>
-                    <button class="btn-retry" onclick="fetchData()">点击重试</button>
+                    <button class="btn-retry" onclick="fetchData()">重试</button>
                 </div>`;
         }
     }
-
-    function renderTable(groups) {
-        const container = document.getElementById('main-content');
-        container.innerHTML = '';
-
-        const sortedExpiries = Object.keys(groups).sort();
-
-        sortedExpiries.forEach(expiry => {
-            const section = document.createElement('div');
-            section.className = 'expiry-section';
-            const formattedDate = `20${expiry.substring(0,2)}-${expiry.substring(2,4)}-${expiry.substring(4,6)}`;
-            
-            let html = `
-                <div class="expiry-header">
-                    <span>📅 到期日: ${formattedDate}</span>
-                    <span style="color:#848e9c; font-size:12px;">BTCUSDT 期权链</span>
-                </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Delta</th><th>IV</th><th style="text-align:right">CALL 标记价</th>
-                                <th class="strike-col">执行价</th>
-                                <th style="text-align:left">PUT 标记价</th><th>IV</th><th>Delta</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
-
-            const sortedStrikes = Object.keys(groups[expiry]).sort((a, b) => Number(a) - Number(b));
-            sortedStrikes.forEach(strike => {
-                const call = groups[expiry][strike]['C'];
-                const put = groups[expiry][strike]['P'];
-                html += `
-                    <tr>
-                        <td class="greek">${call ? call.delta : '-'}</td>
-                        <td class="greek">${call ? call.iv : '-'}</td>
-                        <td class="call-side">${call ? '$' + call.price : '-'}</td>
-                        <td class="strike-col">${parseInt(strike).toLocaleString()}</td>
-                        <td class="put-side">${put ? '$' + put.price : '-'}</td>
-                        <td class="greek">${put ? put.iv : '-'}</td>
-                        <td class="greek">${put ? put.delta : '-'}</td>
-                    </tr>`;
-            });
-            html += `</tbody></table></div>`;
-            section.innerHTML = html;
-            container.appendChild(section);
-        });
-    }
-
+    // ... 其他函数保持不变 ...
     fetchData();
-    setInterval(fetchData, 60000); // 1分钟刷新一次，减小代理压力
+    setInterval(fetchData, 30000); 
 </script>
 
 </body>
